@@ -7,7 +7,6 @@ import string
 import imageio
 import numpy as np
 import numexpr as ne
-import keyboard
 from PIL import Image, ImageTk, ImageFont, ImageDraw
 
 
@@ -73,38 +72,6 @@ def get_font_maps(fontsize, boldness, chars):
     return np.array(sorted(fonts, key=lambda x: x.sum(), reverse=True))
 
 
-def update():
-    """
-    Update settings based on user input.
-    """
-    global ASCII, FILTER, BLOCKS, TEXT, MONO
-
-    if keyboard.is_pressed("shift+a"):  # ASCII Mode.
-        ASCII = 0
-    elif keyboard.is_pressed("a"):
-        ASCII = 1
-    if keyboard.is_pressed("shift+t"):  # Text Mode.
-        TEXT = 0
-    elif keyboard.is_pressed("t"):
-        TEXT = 1
-    if keyboard.is_pressed("shift+m"):  # Monochromatic Mode.
-        MONO = 0
-    elif keyboard.is_pressed("m"):
-        MONO = 1
-
-    if keyboard.is_pressed("o"):  # Outline Filter.
-        FILTER = 1
-    elif keyboard.is_pressed("s"):  # Sobel Filter.
-        FILTER = 2
-    elif keyboard.is_pressed("space"):  # No Filter.
-        FILTER = 0
-
-    for i in range(10):
-        if keyboard.is_pressed(str(i)):
-            BLOCKS = i
-            break
-
-
 def tile_tuples(w, h):
     """
     Return tile sizes for resizing ASCII Images.
@@ -155,6 +122,52 @@ def main():
     mainframe.pack(side=tk.LEFT, expand=tk.YES, padx=10)
     root.protocol("WM_DELETE_WINDOW", lambda: (video.close(), root.destroy()))
 
+    # Define key event handlers
+    def on_key_press(event):
+        global ASCII, FILTER, BLOCKS, TEXT, MONO, MIRROR
+        key = event.keysym.lower()  # Get lowercase key name
+        
+        # ASCII Mode toggle
+        if key == 'a':
+            if event.state & 0x1:  # Shift key
+                ASCII = 0
+            else:
+                ASCII = 1
+        
+        # Text Mode toggle
+        elif key == 't':
+            if event.state & 0x1:  # Shift key
+                TEXT = 0
+            else:
+                TEXT = 1
+        
+        # Monochromatic Mode toggle
+        elif key == 'm':
+            if event.state & 0x1:  # Shift key
+                MONO = 0
+            else:
+                MONO = 1
+        
+        # Filter settings
+        elif key == 'o':  # Outline Filter
+            FILTER = 1
+        elif key == 's':  # Sobel Filter
+            FILTER = 2
+        elif key == 'space':  # No Filter
+            FILTER = 0
+        
+        # Block settings (0-9)
+        elif key in '0123456789':
+            BLOCKS = int(key)
+            
+        print(f"Key pressed: {key}, ASCII: {ASCII}, TEXT: {TEXT}, FILTER: {FILTER}")
+    
+    # Bind the key event to the root window
+    root.bind("<KeyPress>", on_key_press)
+    
+    # Make sure the window has focus to receive key events
+    root.focus_force()
+
     # Get image stream from webcam or other source and begin streaming.
     video = imageio.get_reader(STREAM)
     w, h = video.get_meta_data()["source_size"]
@@ -163,8 +176,6 @@ def main():
 
     def stream():
         image = video.get_next_data()
-        # Update settings based on pressed keys.
-        update()
 
         h, w, c = image.shape
         # Text image is larger than regular, so multiply scaling factor by 2 if Text mode is on.
@@ -244,8 +255,8 @@ def main():
             image = image.astype(np.uint32)
             image *= len(chars)
             image >>= 8
-            image_label.pack_forget()
-            ascii_label.pack()
+            image_label.grid_remove()
+            ascii_label.grid()
             # Update label with new ASCII image.
             ascii_label.config(
                 text="\n".join("".join(x) for x in chars[image]),
@@ -253,15 +264,34 @@ def main():
             )
             ascii_label.after(1, stream)
         else:
-            ascii_label.pack_forget()
-            image_label.pack()
-            frame_image = ImageTk.PhotoImage(Image.fromarray(image))
-            image_label.config(image=frame_image)
-            image_label.image = frame_image
+            ascii_label.grid_remove()
+            image_label.grid()
+
+            # Resize image to fit the window
+            window_width = root.winfo_width()
+            window_height = root.winfo_height()
+
+            if window_width > 1 and window_height > 1:  # Ensure window has been drawn
+                # Convert NumPy array to PIL Image
+                pil_image = Image.fromarray(image)
+
+                # Resize to fit window dimensions
+                pil_image = pil_image.resize((window_width, window_height), Image.LANCZOS)
+
+                frame_image = ImageTk.PhotoImage(pil_image)
+                image_label.config(image=frame_image)
+                image_label.image = frame_image
+
             image_label.after(1, stream)
 
     stream()
-    root.state("zoomed")
+    try:
+        root.attributes('-zoomed', True)  # Works on many Linux systems
+    except Exception:
+        # Fallback method - set window size to match screen
+        width = root.winfo_screenwidth()
+        height = root.winfo_screenheight()
+        root.geometry(f"{width}x{height}+0+0")
     root.mainloop()
 
 
