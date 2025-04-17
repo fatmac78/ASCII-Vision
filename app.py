@@ -7,7 +7,6 @@ import string
 import imageio
 import numpy as np
 import numexpr as ne
-import keyboard
 from PIL import Image, ImageTk, ImageFont, ImageDraw
 
 
@@ -16,9 +15,9 @@ MIRROR = True
 # Video Stream to use.
 STREAM = "<video0>"
 # Background color of the ASCII stream.
-BACKGROUND_COLOR = "white"
+BACKGROUND_COLOR = "black"
 # Font color used in the ASCII stream. Make sure there's some contrast between the two.
-FONT_COLOR = "black"
+FONT_COLOR = "green"
 # Font size to use with colored/grayscaled ASCII.
 FONTSIZE = 12
 # Boldness to use with colored/grayscaled ASCII.
@@ -66,43 +65,11 @@ def get_font_maps(fontsize, boldness, chars):
             font=font,
             stroke_width=boldness,
         )
-        bitmap = np.array(image, dtype=np.uint8)
+        bitmap = np.asarray(image, dtype=np.uint8)
         fonts.append(255 - bitmap)
 
     fonts = list(map(lambda x: x[: min(heights), : min(widths)], fonts))
     return np.array(sorted(fonts, key=lambda x: x.sum(), reverse=True))
-
-
-def update():
-    """
-    Update settings based on user input.
-    """
-    global ASCII, FILTER, BLOCKS, TEXT, MONO
-
-    if keyboard.is_pressed("shift+a"):  # ASCII Mode.
-        ASCII = 0
-    elif keyboard.is_pressed("a"):
-        ASCII = 1
-    if keyboard.is_pressed("shift+t"):  # Text Mode.
-        TEXT = 0
-    elif keyboard.is_pressed("t"):
-        TEXT = 1
-    if keyboard.is_pressed("shift+m"):  # Monochromatic Mode.
-        MONO = 0
-    elif keyboard.is_pressed("m"):
-        MONO = 1
-
-    if keyboard.is_pressed("o"):  # Outline Filter.
-        FILTER = 1
-    elif keyboard.is_pressed("s"):  # Sobel Filter.
-        FILTER = 2
-    elif keyboard.is_pressed("space"):  # No Filter.
-        FILTER = 0
-
-    for i in range(10):
-        if keyboard.is_pressed(str(i)):
-            BLOCKS = i
-            break
 
 
 def tile_tuples(w, h):
@@ -142,17 +109,31 @@ def main():
     # Set up window.
     root = tk.Tk()
     root.title("ASCII Streamer")
-    mainframe = tk.Frame()
-    image_label = tk.Label(mainframe, borderwidth=5, relief="solid")
+
+    # Configure the root window to use the full space
+    root.grid_rowconfigure(0, weight=1)
+    root.grid_columnconfigure(0, weight=1)
+
+    # Change from Frame to Frame with configured weights
+    mainframe = tk.Frame(root, bg="black")
+    mainframe.grid(row=0, column=0, sticky="nsew")  # Use grid instead of pack
+    mainframe.grid_rowconfigure(0, weight=1)
+    mainframe.grid_columnconfigure(0, weight=1)
+
+    # Configure image_label to fill the entire frame
+    image_label = tk.Label(mainframe, borderwidth=0, bg="black")
+    image_label.grid(row=0, column=0, sticky="nsew")  # Use grid instead of pack
+
+    # Configure ascii_label to fill the entire frame
     ascii_label = tk.Label(
         mainframe,
         font=("courier", 2),
         fg=FONT_COLOR,
         bg=BACKGROUND_COLOR,
-        borderwidth=5,
-        relief="solid",
+        borderwidth=0,
     )
-    mainframe.pack(side=tk.LEFT, expand=tk.YES, padx=10)
+    ascii_label.grid(row=0, column=0, sticky="nsew")  # Use grid instead of pack
+
     root.protocol("WM_DELETE_WINDOW", lambda: (video.close(), root.destroy()))
 
     # Get image stream from webcam or other source and begin streaming.
@@ -161,10 +142,68 @@ def main():
 
     tiles = tile_tuples(w, h)
 
+    # Define key event handlers
+    def on_key_press(event):
+        global ASCII, FILTER, BLOCKS, TEXT, MONO, MIRROR, FONTSIZE
+        
+        key = event.keysym
+        print(f"Key pressed: {key}, keysym: {event.keysym}, keycode: {event.keycode}")
+        
+        # Handle number keys specifically
+        if key in ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0']:
+            print(f"Number key detected: {key}")
+            # For number keys 1-9, set BLOCKS
+            if key != '0':
+                BLOCKS = int(key)
+            else:
+                BLOCKS = 0
+            print(f"BLOCKS set to: {BLOCKS}")
+            return
+            
+        # Rest of key handling
+        if key == 'a':
+            ASCII = not ASCII
+            print(f"ASCII Mode: {'ON' if ASCII else 'OFF'}")
+        
+        elif key == 't':
+            TEXT = not TEXT
+            print(f"Text Mode: {'ON' if TEXT else 'OFF'}")
+        
+        elif key == 'm':
+            MONO = not MONO
+            print(f"Mono Mode: {'ON' if MONO else 'OFF'}")
+            
+        # Filter settings
+        elif key == 'o':
+            FILTER = 1
+            print("Filter: Outline")
+        elif key == 's':
+            FILTER = 2
+            print("Filter: Sobel")
+        elif key == 'space':
+            FILTER = 0
+            print("Filter: None")
+    
+    # Bind each key individually
+    root.bind("<KeyPress-a>", on_key_press)
+    root.bind("<KeyPress-t>", on_key_press)
+    root.bind("<KeyPress-m>", on_key_press)
+    root.bind("<KeyPress-o>", on_key_press)
+    root.bind("<KeyPress-s>", on_key_press)
+    root.bind("<space>", on_key_press)
+
+    # Bind number keys individually
+    for i in range(10):
+        root.bind(f"<KeyPress-{i}>", on_key_press)
+
+    # Also bind to general key press for debugging
+    root.bind("<KeyPress>", on_key_press)
+    
+    # Make sure the window has focus to receive key events
+    root.focus_force()
+
     def stream():
         image = video.get_next_data()
-        # Update settings based on pressed keys.
-        update()
 
         h, w, c = image.shape
         # Text image is larger than regular, so multiply scaling factor by 2 if Text mode is on.
@@ -244,8 +283,8 @@ def main():
             image = image.astype(np.uint32)
             image *= len(chars)
             image >>= 8
-            image_label.pack_forget()
-            ascii_label.pack()
+            image_label.grid_remove()
+            ascii_label.grid()
             # Update label with new ASCII image.
             ascii_label.config(
                 text="\n".join("".join(x) for x in chars[image]),
@@ -253,15 +292,34 @@ def main():
             )
             ascii_label.after(1, stream)
         else:
-            ascii_label.pack_forget()
-            image_label.pack()
-            frame_image = ImageTk.PhotoImage(Image.fromarray(image))
-            image_label.config(image=frame_image)
-            image_label.image = frame_image
+            ascii_label.grid_remove()
+            image_label.grid()
+
+            # Resize image to fit the window
+            window_width = root.winfo_width()
+            window_height = root.winfo_height()
+
+            if window_width > 1 and window_height > 1:  # Ensure window has been drawn
+                # Convert NumPy array to PIL Image
+                pil_image = Image.fromarray(image)
+
+                # Resize to fit window dimensions
+                pil_image = pil_image.resize((window_width, window_height), Image.LANCZOS)
+
+                frame_image = ImageTk.PhotoImage(pil_image)
+                image_label.config(image=frame_image)
+                image_label.image = frame_image
+
             image_label.after(1, stream)
 
     stream()
-    root.state("zoomed")
+    try:
+        root.attributes('-zoomed', True)  # Works on many Linux systems
+    except Exception:
+        # Fallback method - set window size to match screen
+        width = root.winfo_screenwidth()
+        height = root.winfo_screenheight()
+        root.geometry(f"{width}x{height}+0+0")
     root.mainloop()
 
 
