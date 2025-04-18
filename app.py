@@ -19,24 +19,26 @@ BACKGROUND_COLOR = "black"
 # Font color used in the ASCII stream. Make sure there's some contrast between the two.
 FONT_COLOR = "green"
 # Font size to use with colored/grayscaled ASCII.
-FONTSIZE = 12
+FONTSIZE = 20
 # Boldness to use with colored/grayscaled ASCII.
-BOLDNESS = 1
+BOLDNESS = 2
 # Factor to divide image height and width by. 1 For for original size, 2 for half size, etc...
 FACTOR = 1
 # Characters to use in ASCII.
 CHARS = "@%#*+=-:. "
-
-# Font to use in ASCII Graphics.
-FONT = "cour.ttf"
+# Sobel filter strength (new variable)
+SOBEL_STRENGTH = 0.2
+# Font to use in ASCII Graphics (missing variable that's causing the error)
+FONT = "cour.ttf"  # Common monospace font, or you can use a system font path
 
 
 ASCII = 0
-FILTER = 0
+FILTER = 2
 BLOCKS = 0
-TEXT = 0
+TEXT = 1
 MONO = 0
 MIRROR = 1
+INVERT = 1  # 0 = Off, 1 = On
 
 
 def get_font_maps(fontsize, boldness, chars):
@@ -142,22 +144,43 @@ def main():
 
     tiles = tile_tuples(w, h)
 
+    # Initialize BLOCKS and calculate initial font size
+    global BLOCKS
+    initial_font_size = (BLOCKS * 4) + 2  # This is apparently the current formula
+    
+    # Print initial font size
+    print(f"Initial BLOCKS: {BLOCKS}, Font size: {initial_font_size}")
+
     # Define key event handlers
     def on_key_press(event):
-        global ASCII, FILTER, BLOCKS, TEXT, MONO, MIRROR, FONTSIZE
+        global ASCII, FILTER, BLOCKS, TEXT, MONO, MIRROR, INVERT, SOBEL_STRENGTH
         
         key = event.keysym
         print(f"Key pressed: {key}, keysym: {event.keysym}, keycode: {event.keycode}")
         
         # Handle number keys specifically
         if key in ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0']:
-            print(f"Number key detected: {key}")
+            old_blocks = BLOCKS
+            old_font_size = (old_blocks * 4) + 2
+            
             # For number keys 1-9, set BLOCKS
             if key != '0':
                 BLOCKS = int(key)
             else:
                 BLOCKS = 0
-            print(f"BLOCKS set to: {BLOCKS}")
+                
+            # Calculate new font size - modify this formula to make sizes smaller
+            # Option 1: Divide by 2 to make sizes smaller
+            new_font_size = (BLOCKS * 2) + 2
+            
+            # Option 2: Use a more modest progression
+            # new_font_size = BLOCKS + 4
+            
+            # Option 3: Logarithmic progression for more control at small sizes
+            # new_font_size = int(math.log2(BLOCKS + 2) * 4) if BLOCKS > 0 else 2
+            
+            print(f"BLOCKS changed: {old_blocks} → {BLOCKS}")
+            print(f"Font size changed: {old_font_size} → {new_font_size}")
             return
             
         # Rest of key handling
@@ -173,6 +196,10 @@ def main():
             MONO = not MONO
             print(f"Mono Mode: {'ON' if MONO else 'OFF'}")
             
+        elif key == 'i':  # Add this for inversion
+            INVERT = not INVERT
+            print(f"Invert Mode: {'ON' if INVERT else 'OFF'}")
+            
         # Filter settings
         elif key == 'o':
             FILTER = 1
@@ -183,6 +210,16 @@ def main():
         elif key == 'space':
             FILTER = 0
             print("Filter: None")
+        
+        # Handle Sobel strength adjustments
+        if key == 'e':  # Increase Sobel strength
+            SOBEL_STRENGTH = min(10.0, SOBEL_STRENGTH + 0.1)
+            SOBEL_STRENGTH = round(SOBEL_STRENGTH, 1)  # Round to 1 decimal place
+            print(f"Sobel strength INCREASED to: {SOBEL_STRENGTH}")
+        elif key == 'd':  # Decrease Sobel strength
+            SOBEL_STRENGTH = max(0.1, SOBEL_STRENGTH - 0.1)
+            SOBEL_STRENGTH = round(SOBEL_STRENGTH, 1)  # Round to 1 decimal place
+            print(f"Sobel strength DECREASED to: {SOBEL_STRENGTH}")
     
     # Bind each key individually
     root.bind("<KeyPress-a>", on_key_press)
@@ -190,6 +227,9 @@ def main():
     root.bind("<KeyPress-m>", on_key_press)
     root.bind("<KeyPress-o>", on_key_press)
     root.bind("<KeyPress-s>", on_key_press)
+    root.bind("<KeyPress-i>", on_key_press)  # Bind inversion key
+    root.bind("<KeyPress-e>", on_key_press)  # Bind increase Sobel strength key
+    root.bind("<KeyPress-d>", on_key_press)  # Bind decrease Sobel strength key
     root.bind("<space>", on_key_press)
 
     # Bind number keys individually
@@ -203,6 +243,8 @@ def main():
     root.focus_force()
 
     def stream():
+        global ASCII, TEXT, FILTER, BLOCKS, MONO, MIRROR, INVERT
+
         image = video.get_next_data()
 
         h, w, c = image.shape
@@ -240,11 +282,15 @@ def main():
                     image, np.array([[-1, -1, -1], [-1, -8, -1], [-1, -1, -1]])
                 ).astype(np.uint8)
             elif FILTER == 2:  # Sobel Kernel.
-                gx = np.array([[1, 0, -1], [2, 0, -2], [1, 0, -1]])
-                gy = np.array([[1, 2, 1], [0, 0, 0], [-1, -2, -1]])
+                gx = np.array([[1, 0, -1], [2, 0, -2], [1, 0, -1]]) * SOBEL_STRENGTH
+                gy = np.array([[1, 2, 1], [0, 0, 0], [-1, -2, -1]]) * SOBEL_STRENGTH
                 image = np.hypot(convolve(image, gx), convolve(image, gy)).astype(
                     np.uint8
                 )
+
+        # Apply inversion if enabled
+        if INVERT:
+            image = 255 - image
 
         if ASCII and not TEXT:
             fh, fw = font_maps[BLOCKS][0].shape[:2]
@@ -286,9 +332,10 @@ def main():
             image_label.grid_remove()
             ascii_label.grid()
             # Update label with new ASCII image.
+            font_size = (BLOCKS * 2) + 2  # Changed from (BLOCKS * 4) + 2
             ascii_label.config(
                 text="\n".join("".join(x) for x in chars[image]),
-                font=("courier", (BLOCKS * 4) + 2),
+                font=("courier", font_size),  # Use the new formula
             )
             ascii_label.after(1, stream)
         else:
